@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reddit Thread Tree Explorer</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        .custom-scrollbar::-webkit-scrollbar { width: 6px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen flex flex-col font-sans">
+
+    <!-- Header & Navigation -->
+    <header class="bg-white border-b border-slate-200 px-6 py-4 shadow-sm sticky top-0 z-50">
+        <div class="max-w-5xl mx-auto flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div class="flex items-center justify-between">
+                <h1 class="text-xl font-bold text-slate-900 flex items-center gap-2">
+                    💬 Subreddit Explorer
+                </h1>
+            </div>
+
+            <!-- Tab Navigation Buttons -->
+            <div id="nav-tabs" class="hidden flex items-center gap-1 bg-slate-100 p-1 rounded-xl border border-slate-200">
+                <button id="tab-btn-explorer" onclick="switchTab('explorer')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition bg-white text-blue-600 shadow-sm">
+                    📖 Explorer
+                </button>
+                <button id="tab-btn-sort" onclick="switchTab('sort')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition text-slate-600 hover:text-slate-900">
+                    🔍 Sort & Search
+                </button>
+                <button id="tab-btn-starred" onclick="switchTab('starred')" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition text-slate-600 hover:text-slate-900">
+                    ⭐ Starred (<span id="starred-badge-count">0</span>)
+                </button>
+            </div>
+            
+            <!-- Controls Panel for Explorer Tab -->
+            <div id="controls-panel" class="hidden flex items-center gap-3">
+                <div class="text-sm font-medium text-slate-600 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200">
+                    Thread: <span id="stat-current" class="text-blue-600 font-bold">0</span> of <span id="stat-total" class="text-slate-900">0</span>
+                </div>
+                <div class="flex items-center gap-1.5">
+                    <button id="btn-prev" onclick="navigateRow(-1)" class="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium transition shadow-sm disabled:opacity-40">
+                        ⬅️ Prev
+                    </button>
+                    <div class="w-16">
+                        <input type="number" id="jump-input" min="1" class="w-full text-center border border-slate-200 bg-white rounded-lg py-1.5 font-bold text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
+                    </div>
+                    <button id="btn-next" onclick="navigateRow(1)" class="bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 px-3 py-1.5 rounded-lg text-sm font-medium transition shadow-sm disabled:opacity-40">
+                        Next ➡️
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-5xl mx-auto w-full flex-grow p-4 md:p-6 flex flex-col justify-start">
+        
+        <!-- Upload View -->
+        <div id="upload-view" class="bg-white border border-slate-200 rounded-xl p-12 text-center max-w-xl mx-auto my-auto shadow-sm w-full">
+            <div class="text-4xl mb-4">📂</div>
+            <h3 class="text-lg font-semibold text-slate-800 mb-1">Import Reddit Dataset</h3>
+            <p class="text-sm text-slate-500 mb-6">Drop your JSONL file here to explore, search, and star Reddit threads.</p>
+            <input type="file" id="file-input" accept=".jsonl" class="hidden">
+            <button onclick="document.getElementById('file-input').click()" class="bg-blue-600 hover:bg-blue-700 text-white font-medium px-5 py-2.5 rounded-lg shadow transition text-sm">
+                Choose JSONL File
+            </button>
+        </div>
+
+        <!-- Tab 1: Single Thread Explorer View -->
+        <div id="tab-view-explorer" class="hidden w-full space-y-6">
+            <article class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                <div class="p-6 bg-gradient-to-b from-slate-50/50 to-white border-b border-slate-100">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+                        <div class="flex flex-wrap items-center gap-2 text-xs font-medium text-slate-500">
+                            <span id="post-subreddit" class="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-md">r/subreddit</span>
+                            <span>•</span>
+                            <span>Posted by <span id="post-author" class="font-semibold text-slate-700">u/author</span></span>
+                            <span>•</span>
+                            <span id="post-timestamp" class="text-slate-400">Timestamp</span>
+                            <span>•</span>
+                            <span class="font-mono text-slate-400">ID: <span id="post-id">id</span></span>
+                        </div>
+                        
+                        <!-- Star / Favorite Toggle Button -->
+                        <button id="star-btn" onclick="toggleStarCurrent()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition border">
+                            <span id="star-btn-icon">⭐</span>
+                            <span id="star-btn-label">Star Thread</span>
+                        </button>
+                    </div>
+
+                    <h2 id="post-title" class="text-xl font-bold text-slate-900 leading-snug mb-3"></h2>
+                    <div id="post-body-content" class="text-slate-700 text-sm leading-relaxed space-y-3 mt-2"></div>
+
+                    <div class="mt-5 pt-4 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+                        <div class="flex items-center gap-2 font-bold text-slate-500">
+                            <span class="bg-slate-100 px-2.5 py-1 rounded text-slate-700">👍 <span id="post-score">0</span> Points</span>
+                        </div>
+                        <a id="post-permalink" target="_blank" class="inline-flex items-center gap-1.5 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 font-bold px-3 py-1.5 rounded-md transition shadow-sm">
+                            🌐 View Thread on Reddit ↗
+                        </a>
+                    </div>
+                </div>
+
+                <!-- Conversational Comment Section -->
+                <div class="p-6 bg-white">
+                    <div class="flex flex-wrap items-center justify-between border-b border-slate-100 pb-4 mb-4 gap-2">
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 flex items-center gap-2">
+                            💬 Conversational Tree Architecture
+                        </h3>
+                        <!-- Comments Detailed Breakdown Badge -->
+                        <div class="flex items-center gap-2 text-xs font-bold">
+                            <span class="bg-blue-50 text-blue-700 border border-blue-200 px-2.5 py-1 rounded-full">
+                                Total: <span id="comment-count-total">0</span>
+                            </span>
+                            <span class="bg-emerald-50 text-emerald-700 border border-emerald-200 px-2.5 py-1 rounded-full">
+                                Active: <span id="comment-count-active">0</span>
+                            </span>
+                            <span class="bg-rose-50 text-rose-700 border border-rose-200 px-2.5 py-1 rounded-full">
+                                Deleted: <span id="comment-count-deleted">0</span>
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <div id="tree-root" class="space-y-4"></div>
+                </div>
+            </article>
+        </div>
+
+        <!-- Tab 2: Sort & Search View -->
+        <div id="tab-view-sort" class="hidden w-full space-y-6">
+            <div class="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
+                <div class="flex flex-col md:flex-row gap-4 justify-between items-stretch md:items-center">
+                    <!-- Search Input Box -->
+                    <div class="relative flex-1">
+                        <input type="text" id="search-input" oninput="renderSortedView()" placeholder="Search threads by keyword in main post..." class="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
+                        <span class="absolute left-3 top-2.5 text-slate-400 text-sm">🔍</span>
+                    </div>
+
+                    <!-- Simplified Sort Controls -->
+                    <div class="flex items-center gap-2">
+                        <label for="sort-select" class="text-xs font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Sort By:</label>
+                        <select id="sort-select" onchange="renderSortedView()" class="border border-slate-200 bg-white rounded-lg px-3 py-2 text-sm font-semibold text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-sm">
+                            <option value="index">Original Order</option>
+                            <option value="timestamp">Date Posted</option>
+                            <option value="comments">Total Comments</option>
+                            <option value="deleted">Deleted Comments</option>
+                            <option value="votes">Votes / Score</option>
+                        </select>
+
+                        <!-- Direction Toggle Button -->
+                        <button id="sort-dir-btn" onclick="toggleSortDirection()" title="Toggle sort order" class="flex items-center gap-1 border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 rounded-lg px-3 py-2 text-sm font-bold shadow-sm transition">
+                            <span id="sort-dir-icon">⬇️</span>
+                            <span id="sort-dir-label">Desc</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Search / Sorted Results Table Container -->
+            <div id="sorted-results-container" class="space-y-3"></div>
+        </div>
+
+        <!-- Tab 3: Starred Threads View -->
+        <div id="tab-view-starred" class="hidden w-full space-y-6">
+            <div class="flex items-center justify-between bg-white border border-slate-200 rounded-xl p-4 shadow-sm">
+                <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2">
+                    ⭐ Starred / Favorite Threads
+                </h3>
+                <span class="text-xs text-slate-500">Click any thread card to read its full content in Explorer.</span>
+            </div>
+
+            <div id="starred-results-container" class="space-y-3"></div>
+        </div>
+
+    </main>
+
+    <script>
+        let dataset = [];
+        let currentIdx = 0;
+        let activeTab = 'explorer';
+        let currentFileName = 'default';
+        let starredIds = new Set();
+        let sortDirection = 'desc'; // 'desc' or 'asc'
+
+        function getStorageKey() {
+            return `reddit_starred_posts_${currentFileName}`;
+        }
+
+        function loadStarredForCurrentFile() {
+            const saved = localStorage.getItem(getStorageKey());
+            starredIds = new Set(JSON.parse(saved || '[]'));
+            updateStarredBadge();
+        }
+
+        function saveStarred() {
+            localStorage.setItem(getStorageKey(), JSON.stringify(Array.from(starredIds)));
+            updateStarredBadge();
+        }
+
+        function updateStarredBadge() {
+            document.getElementById('starred-badge-count').textContent = starredIds.size;
+        }
+
+        function toggleSortDirection() {
+            sortDirection = sortDirection === 'desc' ? 'asc' : 'desc';
+            const icon = document.getElementById('sort-dir-icon');
+            const label = document.getElementById('sort-dir-label');
+            
+            if (sortDirection === 'desc') {
+                icon.textContent = '⬇️';
+                label.textContent = 'Desc';
+            } else {
+                icon.textContent = '⬆️';
+                label.textContent = 'Asc';
+            }
+            
+            renderSortedView();
+        }
+
+        function toggleStar(postId, event) {
+            if (event) event.stopPropagation();
+            if (starredIds.has(postId)) {
+                starredIds.delete(postId);
+            } else {
+                starredIds.add(postId);
+            }
+            saveStarred();
+            
+            updateStarBtnUI();
+            if (activeTab === 'sort') renderSortedView();
+            if (activeTab === 'starred') renderStarredView();
+        }
+
+        function switchTab(tabName) {
+            activeTab = tabName;
+            
+            document.getElementById('tab-view-explorer').classList.toggle('hidden', tabName !== 'explorer');
+            document.getElementById('tab-view-sort').classList.toggle('hidden', tabName !== 'sort');
+            document.getElementById('tab-view-starred').classList.toggle('hidden', tabName !== 'starred');
+            document.getElementById('controls-panel').classList.toggle('hidden', tabName !== 'explorer');
+
+            const tabs = ['explorer', 'sort', 'starred'];
+            tabs.forEach(t => {
+                const btn = document.getElementById(`tab-btn-${t}`);
+                if (t === tabName) {
+                    btn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition bg-white text-blue-600 shadow-sm border border-slate-200/50";
+                } else {
+                    btn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-semibold transition text-slate-600 hover:text-slate-900";
+                }
+            });
+
+            if (tabName === 'sort') renderSortedView();
+            if (tabName === 'starred') renderStarredView();
+        }
+
+        function openThreadInExplorer(index) {
+            currentIdx = index;
+            switchTab('explorer');
+            renderRow();
+        }
+
+        function parseRedditText(rawText) {
+            if (!rawText) return "";
+            
+            let decoded = rawText
+                .replace(/&amp;/g, "&")
+                .replace(/&lt;/g, "<")
+                .replace(/&gt;/g, ">")
+                .replace(/&quot;/g, '"')
+                .replace(/&#039;/g, "'");
+
+            let escaped = decoded
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+
+            let paragraphs = escaped.split(/\n\s*\n/);
+            
+            let processedParagraphs = paragraphs.map(p => {
+                let trimmed = p.trim();
+                if (!trimmed) return "";
+
+                if (trimmed.startsWith("&gt;")) {
+                    let content = trimmed.replace(/^&gt;\s*/, "");
+                    return `<blockquote class="border-l-4 border-slate-300 pl-3 italic text-slate-500 my-2">${content}</blockquote>`;
+                }
+
+                trimmed = trimmed.replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900">$1</strong>');
+                trimmed = trimmed.replace(/\[(.*?)\]\((.*?)\)/g, '<a href="$2" target="_blank" class="text-blue-600 hover:underline">$1</a>');
+                trimmed = trimmed.split('\n').join('<br>');
+
+                return `<p class="mb-2.5 last:mb-0 text-slate-800 leading-relaxed">${trimmed}</p>`;
+            });
+
+            return processedParagraphs.filter(p => p !== "").join("");
+        }
+
+        function formatTimestamp(unixSecs) {
+            if (!unixSecs) return "Unknown Date";
+            const date = new Date(unixSecs * 1000);
+            return date.toLocaleString(undefined, { 
+                dateStyle: 'medium', 
+                timeStyle: 'short' 
+            });
+        }
+
+        function getCommentStats(comments) {
+            let stats = { total: 0, active: 0, deleted: 0 };
+            if (!comments) return stats;
+
+            function traverse(list) {
+                list.forEach(item => {
+                    stats.total += 1;
+                    const isDeleted = (item.author === "[deleted]" || item.comment_body === "[deleted]");
+                    if (isDeleted) {
+                        stats.deleted += 1;
+                    } else {
+                        stats.active += 1;
+                    }
+
+                    if (item.replies && item.replies.length > 0) {
+                        traverse(item.replies);
+                    }
+                });
+            }
+
+            traverse(comments);
+            return stats;
+        }
+
+        document.getElementById('file-input').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            currentFileName = file.name;
+            loadStarredForCurrentFile();
+            
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const lines = evt.target.result.split(/\r?\n/);
+                dataset = [];
+                
+                lines.forEach((line) => {
+                    if (line.trim()) {
+                        try {
+                            let postObj = JSON.parse(line);
+                            
+                            const cleanText = postObj.selftext ? postObj.selftext.trim() : "";
+                            const cleanUrl = postObj.url ? postObj.url.trim() : "";
+                            const subName = postObj.subreddit ? postObj.subreddit.toLowerCase() : "reddit";
+                            
+                            const urlLower = cleanUrl.toLowerCase();
+                            const matchesRedditSub = urlLower.includes("reddit.com/r/" + subName) || urlLower.includes("reddit.com/comments/");
+                            
+                            postObj.processed_is_link_post = (cleanText === "" && cleanUrl !== "" && !matchesRedditSub);
+                            postObj._originalIndex = dataset.length;
+                            postObj._stats = getCommentStats(postObj.comments || []);
+                            
+                            dataset.push(postObj);
+                        } catch(err) { console.error("Skipped broken json block:", err); }
+                    }
+                });
+
+                if (dataset.length === 0) {
+                    alert("Zero structural json elements located inside parsing buffer.");
+                    return;
+                }
+
+                initWorkspace();
+            };
+            reader.readAsText(file);
+        });
+
+        function initWorkspace() {
+            document.getElementById('upload-view').classList.add('hidden');
+            document.getElementById('tab-view-explorer').classList.remove('hidden');
+            document.getElementById('controls-panel').classList.remove('hidden');
+            document.getElementById('nav-tabs').classList.remove('hidden');
+            
+            currentIdx = 0;
+            updateStarredBadge();
+
+            document.getElementById('jump-input').addEventListener('change', (e) => {
+                let targetNum = parseInt(e.target.value) - 1;
+                if (!isNaN(targetNum) && targetNum >= 0 && targetNum < dataset.length) {
+                    currentIdx = targetNum;
+                    renderRow();
+                }
+            });
+
+            document.addEventListener('keydown', function(event) {
+                if (dataset.length === 0 || activeTab !== 'explorer') return;
+
+                if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) {
+                    return;
+                }
+
+                if (event.key === 'ArrowLeft') {
+                    event.preventDefault(); 
+                    if (currentIdx > 0) navigateRow(-1);
+                } else if (event.key === 'ArrowRight') {
+                    event.preventDefault();
+                    if (currentIdx < dataset.length - 1) navigateRow(1);
+                }
+            });
+
+            renderRow();
+        }
+
+        function updateStarBtnUI() {
+            const post = dataset[currentIdx];
+            if (!post) return;
+            const isStarred = starredIds.has(post.post_id);
+            const btn = document.getElementById('star-btn');
+            
+            if (isStarred) {
+                btn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition bg-amber-50 text-amber-700 border-amber-300 hover:bg-amber-100 shadow-sm";
+                document.getElementById('star-btn-icon').textContent = "⭐";
+                document.getElementById('star-btn-label').textContent = "Starred";
+            } else {
+                btn.className = "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition bg-white text-slate-600 border-slate-200 hover:bg-slate-50 hover:text-slate-900 shadow-sm";
+                document.getElementById('star-btn-icon').textContent = "☆";
+                document.getElementById('star-btn-label').textContent = "Star Thread";
+            }
+        }
+
+        function toggleStarCurrent() {
+            const post = dataset[currentIdx];
+            if (post) toggleStar(post.post_id);
+        }
+
+        function renderRow() {
+            if (currentIdx < 0) currentIdx = 0;
+            if (currentIdx >= dataset.length) currentIdx = dataset.length - 1;
+
+            const post = dataset[currentIdx];
+
+            document.getElementById('post-subreddit').textContent = `r/${post.subreddit || 'Reddit'}`;
+            document.getElementById('post-author').textContent = post.author || '[deleted]';
+            document.getElementById('post-timestamp').textContent = formatTimestamp(post.timestamp);
+            document.getElementById('post-id').textContent = post.post_id || 'N/A';
+            document.getElementById('post-title').innerHTML = parseRedditText(post.title || "Untitled Submission");
+            document.getElementById('post-score').textContent = post.score ?? 0;
+
+            updateStarBtnUI();
+
+            const bodyContentContainer = document.getElementById('post-body-content');
+            bodyContentContainer.innerHTML = "";
+
+            if (post.selftext && post.selftext.trim().length > 0) {
+                bodyContentContainer.innerHTML = parseRedditText(post.selftext);
+                bodyContentContainer.classList.remove('hidden');
+            } else if (post.processed_is_link_post || (post.url && post.url.trim().length > 0 && !post.url.includes("reddit.com"))) {
+                bodyContentContainer.innerHTML = `
+                    <div class="p-5 bg-gradient-to-r from-blue-50 to-indigo-50/30 border border-blue-200/70 rounded-xl flex items-center justify-between shadow-sm my-2">
+                        <div class="truncate pr-4">
+                            <span class="text-[10px] uppercase tracking-wider text-blue-500 font-extrabold block mb-1">Shared Link Destination</span>
+                            <a href="${post.url}" target="_blank" class="text-blue-700 font-bold text-sm hover:underline break-all inline-flex items-center gap-1.5">
+                                ${post.url} ↗
+                            </a>
+                        </div>
+                    </div>
+                `;
+                bodyContentContainer.classList.remove('hidden');
+            } else {
+                bodyContentContainer.classList.add('hidden');
+            }
+
+            const permalinkBtn = document.getElementById('post-permalink');
+            if (post.permalink && post.permalink.trim().length > 0) {
+                permalinkBtn.href = post.permalink.startsWith('http') ? post.permalink : `https://reddit.com${post.permalink}`;
+                permalinkBtn.classList.remove('hidden');
+            } else {
+                permalinkBtn.classList.add('hidden');
+            }
+
+            document.getElementById('stat-current').textContent = currentIdx + 1;
+            document.getElementById('stat-total').textContent = dataset.length;
+            document.getElementById('jump-input').value = currentIdx + 1;
+            document.getElementById('btn-prev').disabled = (currentIdx === 0);
+            document.getElementById('btn-next').disabled = (currentIdx === dataset.length - 1);
+
+            const stats = post._stats || getCommentStats(post.comments || []);
+            document.getElementById('comment-count-total').textContent = stats.total;
+            document.getElementById('comment-count-active').textContent = stats.active;
+            document.getElementById('comment-count-deleted').textContent = stats.deleted;
+
+            const treeRoot = document.getElementById('tree-root');
+            treeRoot.innerHTML = "";
+            
+            const commentsMarkup = constructTreeHTML(post.comments || []);
+            if (!commentsMarkup || commentsMarkup.trim() === "") {
+                treeRoot.innerHTML = `<p class="text-sm italic text-slate-400 py-4">No logged responses exist on this entry context.</p>`;
+            } else {
+                treeRoot.innerHTML = commentsMarkup;
+            }
+        }
+
+        function constructTreeHTML(nestedComments) {
+            const sortStrategy = (list) => list.sort((a, b) => (b.score || 0) - (a.score || 0));
+
+            function buildBranchMarkup(node, depth = 0) {
+                const nestingBands = ['border-slate-200', 'border-blue-200', 'border-indigo-200', 'border-emerald-200'];
+                const targetedColor = nestingBands[depth % nestingBands.length];
+                const isDeleted = (node.author === "[deleted]" || node.comment_body === "[deleted]");
+
+                let html = `
+                    <div class="comment-container mt-4 pl-3 md:pl-4 border-l-2 ${targetedColor} transition-all">
+                        <div class="bg-white rounded-lg p-3 border ${isDeleted ? 'border-rose-100 bg-rose-50/30' : 'border-slate-200/80'} hover:border-slate-300 hover:shadow-sm transition duration-150">
+                            <div class="flex flex-wrap items-center gap-2 text-xs text-slate-400 mb-1.5">
+                                <span class="font-bold font-mono ${isDeleted ? 'text-rose-500' : 'text-slate-700'}">u/${node.author || '[deleted]'}</span>
+                                ${isDeleted ? '<span class="bg-rose-100 text-rose-700 px-1.5 py-0.2 rounded font-semibold text-[10px]">Deleted</span>' : ''}
+                                <span class="bg-slate-100 text-slate-600 px-1.5 py-0.2 rounded font-semibold text-[10px]">${node.score ?? 0} pts</span>
+                                <span>•</span>
+                                <span>${formatTimestamp(node.created_utc)}</span>
+                            </div>
+                            <div class="text-sm ${isDeleted ? 'text-slate-400 italic' : 'text-slate-800'} leading-relaxed space-y-2 break-words">
+                                ${parseRedditText(node.comment_body)}
+                            </div>
+                        </div>
+                `;
+
+                if (node.replies && node.replies.length > 0) {
+                    sortStrategy(node.replies);
+                    node.replies.forEach(childNode => {
+                        html += buildBranchMarkup(childNode, depth + 1);
+                    });
+                }
+
+                html += `</div>`;
+                return html;
+            }
+
+            const roots = JSON.parse(JSON.stringify(nestedComments));
+            sortStrategy(roots);
+            
+            let globalTreeHTML = "";
+            roots.forEach(rootBranch => {
+                globalTreeHTML += buildBranchMarkup(rootBranch, 0);
+            });
+
+            return globalTreeHTML;
+        }
+
+        function renderSortedView() {
+            const query = (document.getElementById('search-input').value || "").toLowerCase().trim();
+            const metric = document.getElementById('sort-select').value;
+
+            let filtered = dataset.filter(post => {
+                if (!query) return true;
+                const titleMatch = (post.title || "").toLowerCase().includes(query);
+                const bodyMatch = (post.selftext || "").toLowerCase().includes(query);
+                return titleMatch || bodyMatch;
+            });
+
+            filtered.sort((a, b) => {
+                let diff = 0;
+                if (metric === 'comments') diff = b._stats.total - a._stats.total;
+                else if (metric === 'deleted') diff = b._stats.deleted - a._stats.deleted;
+                else if (metric === 'votes') diff = (b.score || 0) - (a.score || 0);
+                else if (metric === 'timestamp') diff = (b.timestamp || 0) - (a.timestamp || 0);
+                else diff = b._originalIndex - a._originalIndex; // Default index
+
+                // Reverse if ascending mode is selected
+                return sortDirection === 'desc' ? diff : -diff;
+            });
+
+            const container = document.getElementById('sorted-results-container');
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="bg-white border border-slate-200 rounded-xl p-8 text-center text-slate-500 text-sm">No threads matched your search or sort criteria.</div>`;
+                return;
+            }
+
+            container.innerHTML = filtered.map(post => createThreadCardHTML(post)).join('');
+        }
+
+        function renderStarredView() {
+            const starredPosts = dataset.filter(post => starredIds.has(post.post_id));
+            const container = document.getElementById('starred-results-container');
+
+            if (starredPosts.length === 0) {
+                container.innerHTML = `
+                    <div class="bg-white border border-slate-200 rounded-xl p-12 text-center text-slate-500 text-sm">
+                        <div class="text-3xl mb-2">⭐</div>
+                        <p class="font-semibold text-slate-700 mb-1">No starred threads yet</p>
+                        <p class="text-xs">Click the star icon on any thread in the Explorer or Sort tabs to save it here for later.</p>
+                    </div>`;
+                return;
+            }
+
+            container.innerHTML = starredPosts.map(post => createThreadCardHTML(post)).join('');
+        }
+
+        function createThreadCardHTML(post) {
+            const isStarred = starredIds.has(post.post_id);
+            const stats = post._stats;
+
+            return `
+                <div onclick="openThreadInExplorer(${post._originalIndex})" class="bg-white border border-slate-200 hover:border-blue-400 hover:shadow-md rounded-xl p-5 transition cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-4 group">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex flex-wrap items-center gap-2 text-xs text-slate-500 mb-1.5">
+                            <span class="font-bold text-blue-600 bg-blue-50 px-2 py-0.5 rounded">r/${post.subreddit || 'Reddit'}</span>
+                            <span>•</span>
+                            <span>u/${post.author || '[deleted]'}</span>
+                            <span>•</span>
+                            <span>${formatTimestamp(post.timestamp)}</span>
+                        </div>
+                        <h4 class="text-base font-bold text-slate-900 group-hover:text-blue-600 transition truncate mb-1">
+                            ${post.title || 'Untitled Thread'}
+                        </h4>
+                        <p class="text-xs text-slate-500 line-clamp-2 leading-relaxed">
+                            ${post.selftext ? post.selftext.replace(/<[^>]*>?/gm, '') : (post.url || 'No body text')}
+                        </p>
+                    </div>
+
+                    <div class="flex items-center gap-3 border-t md:border-t-0 pt-3 md:pt-0 border-slate-100 shrink-0 justify-between md:justify-end">
+                        <div class="flex items-center gap-2 text-xs font-semibold">
+                            <span class="bg-slate-100 text-slate-700 px-2.5 py-1 rounded-md">👍 ${post.score ?? 0}</span>
+                            <div class="flex items-center gap-1 bg-blue-50 border border-blue-200/60 text-blue-800 px-2.5 py-1 rounded-md">
+                                💬 ${stats.total}
+                                <span class="text-[10px] text-blue-600">(${stats.active} act / <span class="${stats.deleted > 0 ? 'text-rose-600 font-bold' : ''}">${stats.deleted} del</span>)</span>
+                            </div>
+                        </div>
+
+                        <button onclick="toggleStar('${post.post_id}', event)" class="p-2 rounded-lg hover:bg-slate-100 transition text-lg" title="${isStarred ? 'Unstar' : 'Star'}">
+                            ${isStarred ? '⭐' : '☆'}
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function navigateRow(direction) {
+            currentIdx += direction;
+            renderRow();
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+    </script>
+</body>
+</html>
